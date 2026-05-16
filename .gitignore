@@ -2,6 +2,8 @@
 
 # dependencies
 node_modules/
+waitlist/node_modules/
+waitlist/dist/
 
 # Expo
 .expo/
