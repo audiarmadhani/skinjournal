@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Synced with ../global.css (SkinJournal light theme) */
+@layer base {
+  :root {
+    --color-background: 250 247 248;
+    --color-surface: 255 255 255;
+    --color-ink: 26 26 26;
+    --color-muted: 138 133 128;
+    --color-border: 229 226 221;
+    --color-pink: 242 168 188;
+    --color-pink-light: 253 232 240;
+    --color-pink-dark: 232 138 166;
+    --color-stone-200: 229 226 221;
+    --color-stone-900: 26 26 26;
+  }
+
+  body {
+    @apply bg-background text-ink antialiased;
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Helvetica,
+      Arial,
+      sans-serif;
+  }
+}
