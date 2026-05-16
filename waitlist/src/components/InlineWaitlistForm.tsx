@@ -41,7 +41,7 @@ export function InlineWaitlistForm({ onStatusChange }: InlineWaitlistFormProps) 
 
   return (
     <form onSubmit={handleSubmit} className="mt-8 w-full max-w-lg">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-0">
         <input
           type="email"
           name="email"
@@ -51,12 +51,12 @@ export function InlineWaitlistForm({ onStatusChange }: InlineWaitlistFormProps) 
           required
           autoComplete="email"
           disabled={loading}
-          className="min-h-[52px] flex-1 rounded-2xl border border-stone-200 bg-surface px-4 py-3 text-base text-stone-900 placeholder:text-stone-400 focus:border-pink focus:outline-none focus:ring-2 focus:ring-pink/30 disabled:opacity-60"
+          className="min-h-[52px] flex-1 rounded-2xl border border-stone-200 bg-surface px-4 py-3 text-base text-stone-900 placeholder:text-muted focus:border-pink focus:outline-none focus:ring-2 focus:ring-pink/30 disabled:opacity-60 sm:rounded-r-none sm:border-r-0"
         />
         <button
           type="submit"
           disabled={loading}
-          className="min-h-[52px] shrink-0 rounded-2xl bg-pink px-6 py-3 text-base font-semibold text-ink transition-opacity hover:opacity-90 disabled:opacity-60 sm:px-8"
+          className="min-h-[52px] shrink-0 rounded-2xl bg-pink px-6 py-3 text-base font-semibold text-ink transition-opacity hover:opacity-90 disabled:opacity-60 sm:rounded-l-none sm:px-8"
         >
           {loading ? (
             <span className="inline-flex items-center justify-center gap-2">
