@@ -74,6 +74,13 @@ npm run dev
 
 Deploy to Vercel with **Root Directory** set to `waitlist`, build command `npm run build`, output `dist`.
 
+**Required Vercel env vars** (Settings → Environment Variables, then redeploy):
+
+- `VITE_SUPABASE_URL` — same value as `EXPO_PUBLIC_SUPABASE_URL` in the app
+- `VITE_SUPABASE_ANON_KEY` — same value as `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+
+Without these, the waitlist form shows “not configured yet” because Vite bakes env vars in at build time.
+
 ## Project structure
 
 ```
