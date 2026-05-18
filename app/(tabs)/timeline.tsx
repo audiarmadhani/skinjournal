@@ -1,16 +1,21 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, Pressable, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { openCameraCapture } from '@/utils/camera-navigation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { TimelineCard, Card, EmptyState, ScreenHeader, PillTag, PrimaryButton } from '@/components/ui';
+import { TabSlideScreen } from '@/components/navigation/TabSlideScreen';
 import { usePhotos } from '@/hooks/usePhotos';
 import { data } from '@/services/data-provider';
 import { confirmAction, showMessage } from '@/utils/confirm';
 import { formatMonthYear } from '@/utils/dates';
-import type { Photo } from '@/types';
+import { groupPhotosIntoSessions, type PhotoSessionGroup } from '@/utils/photo-sessions';
+import { useAppColors } from '@/hooks/useAppColors';
 
 export default function TimelineScreen() {
+  const colors = useAppColors();
   const queryClient = useQueryClient();
   const { data: photos, isLoading } = usePhotos();
   const [selected, setSelected] = useState<string[]>([]);
@@ -18,16 +23,17 @@ export default function TimelineScreen() {
   const [selectMode, setSelectMode] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const sessions = useMemo(() => groupPhotosIntoSessions(photos ?? []), [photos]);
+
   const grouped = useMemo(() => {
-    if (!photos) return [];
-    const map = new Map<string, Photo[]>();
-    for (const photo of photos) {
-      const month = formatMonthYear(photo.date);
+    const map = new Map<string, PhotoSessionGroup[]>();
+    for (const session of sessions) {
+      const month = formatMonthYear(session.date);
       if (!map.has(month)) map.set(month, []);
-      map.get(month)!.push(photo);
+      map.get(month)!.push(session);
     }
     return Array.from(map.entries());
-  }, [photos]);
+  }, [sessions]);
 
   const exitModes = () => {
     setCompareMode(false);
@@ -45,24 +51,24 @@ export default function TimelineScreen() {
     setSelected([]);
   };
 
-  const handleSelect = (id: string) => {
+  const handleSelect = (primaryId: string) => {
     if (selectMode) {
       setSelected((prev) =>
-        prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+        prev.includes(primaryId) ? prev.filter((p) => p !== primaryId) : [...prev, primaryId]
       );
       return;
     }
 
     if (compareMode) {
       setSelected((prev) => {
-        if (prev.includes(id)) return prev.filter((p) => p !== id);
-        if (prev.length >= 2) return [prev[1], id];
-        return [...prev, id];
+        if (prev.includes(primaryId)) return prev.filter((p) => p !== primaryId);
+        if (prev.length >= 2) return [prev[1], primaryId];
+        return [...prev, primaryId];
       });
       return;
     }
 
-    router.push(`/photo/${id}`);
+    router.push(`/photo/${primaryId}`);
   };
 
   const startCompare = () => {
@@ -77,10 +83,10 @@ export default function TimelineScreen() {
 
     const count = selected.length;
     const confirmed = await confirmAction(
-      'Delete photos?',
+      'Delete journal entries?',
       count === 1
-        ? 'This photo will be removed from your journal.'
-        : `Remove ${count} photos from your journal? This cannot be undone.`,
+        ? 'This entry and all its angles will be removed.'
+        : `Remove ${count} journal entries? This cannot be undone.`,
       'Delete',
       true
     );
@@ -101,28 +107,21 @@ export default function TimelineScreen() {
     }
   };
 
-  if (!isLoading && (!photos || photos.length === 0)) {
-    return (
+  return (
+    <TabSlideScreen>
+    {!isLoading && sessions.length === 0 ? (
       <SafeAreaView className="flex-1 bg-background">
         <EmptyState
           title="No photos yet"
-          description="Take your first photo to start building your visual timeline."
-          actionLabel="Take photo"
-          onAction={() => router.push('/camera/capture')}
+          description="Take your first three-angle journal entry to start building your visual timeline."
+          actionLabel="Take photos"
+          onAction={() => openCameraCapture()}
         />
       </SafeAreaView>
-    );
-  }
-
-  return (
+    ) : (
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <ScrollView className="flex-1 px-5">
-        <ScreenHeader
-          title="My Journal"
-          showBack={false}
-          rightIcon="more"
-          onRightPress={toggleSelectMode}
-        />
+        <ScreenHeader title="My Journal" showBack={false} />
 
         {selectMode ? (
           <View className="flex-row items-center justify-between gap-3 mb-4">
@@ -131,7 +130,7 @@ export default function TimelineScreen() {
             </Pressable>
             <Text className="text-muted text-sm flex-1 text-center">
               {selected.length === 0
-                ? 'Tap photos to select'
+                ? 'Tap entries to select'
                 : `${selected.length} selected`}
             </Text>
             <PrimaryButton
@@ -142,7 +141,7 @@ export default function TimelineScreen() {
             />
           </View>
         ) : (
-          <View className="flex-row justify-end mb-4">
+          <View className="flex-row items-center justify-between mb-4">
             <Pressable
               onPress={() => {
                 if (compareMode && selected.length === 2) startCompare();
@@ -155,24 +154,33 @@ export default function TimelineScreen() {
               className={`rounded-full px-4 py-2 ${compareMode ? 'bg-pink-dark' : 'bg-pink'}`}
             >
               <Text className="text-ink text-sm font-bold">
-                {compareMode ? (selected.length === 2 ? 'Compare' : 'Pick 2 photos') : 'Compare'}
+                {compareMode ? (selected.length === 2 ? 'Compare' : 'Pick 2 entries') : 'Compare'}
               </Text>
+            </Pressable>
+            <Pressable
+              onPress={toggleSelectMode}
+              className="w-10 h-10 rounded-full bg-surface items-center justify-center"
+              accessibilityRole="button"
+              accessibilityLabel="More options"
+            >
+              <Ionicons name="ellipsis-horizontal" size={22} color={colors.ink} />
             </Pressable>
           </View>
         )}
 
-        {grouped.map(([month, monthPhotos]) => (
+        {grouped.map(([month, monthSessions]) => (
           <View key={month} className="mb-8">
             <Text className="text-ink font-bold text-lg mb-3">{month}</Text>
             <View className="flex-row flex-wrap -m-1">
-              {monthPhotos.map((photo) => (
-                <View key={photo.id} className="w-1/3">
+              {monthSessions.map((session) => (
+                <View key={session.primaryPhoto.id} className="w-1/3">
                   <TimelineCard
-                    imageUrl={photo.image_url}
-                    date={photo.date}
-                    isBaseline={photo.baseline}
-                    selected={selected.includes(photo.id)}
-                    onPress={() => handleSelect(photo.id)}
+                    imageUrl={session.primaryPhoto.image_url}
+                    date={session.date}
+                    isBaseline={session.baseline}
+                    multiAngle={session.isMultiAngle}
+                    selected={selected.includes(session.primaryPhoto.id)}
+                    onPress={() => handleSelect(session.primaryPhoto.id)}
                   />
                 </View>
               ))}
@@ -187,5 +195,7 @@ export default function TimelineScreen() {
         </Card>
       </ScrollView>
     </SafeAreaView>
+    )}
+    </TabSlideScreen>
   );
 }

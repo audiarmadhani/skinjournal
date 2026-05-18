@@ -1,12 +1,33 @@
+import { useRef } from 'react';
 import { Tabs } from 'expo-router';
 import { BottomTabBar } from '@/components/ui';
+import { setTabSlideDirection } from '@/store/tab-slide-store';
 
 export default function TabLayout() {
+  const prevIndexRef = useRef<number | null>(null);
+  const skipInitialRef = useRef(true);
+
   return (
     <Tabs
       tabBar={(props) => <BottomTabBar {...props} />}
+      screenListeners={{
+        state: (e) => {
+          const idx = e.data.state.index;
+          if (skipInitialRef.current) {
+            skipInitialRef.current = false;
+            prevIndexRef.current = idx;
+            return;
+          }
+          if (prevIndexRef.current !== null && prevIndexRef.current !== idx) {
+            setTabSlideDirection(prevIndexRef.current, idx);
+          }
+          prevIndexRef.current = idx;
+        },
+      }}
       screenOptions={{
         headerShown: false,
+        lazy: false,
+        detachInactiveScreens: false,
         tabBarStyle: {
           position: 'absolute',
           left: 0,
@@ -18,7 +39,8 @@ export default function TabLayout() {
           backgroundColor: 'transparent',
           borderTopWidth: 0,
         },
-        sceneContainerStyle: { paddingBottom: 96 },
+        sceneContainerStyle: { paddingBottom: 96, overflow: 'visible' },
+        sceneStyle: { backgroundColor: 'transparent', overflow: 'visible' },
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />

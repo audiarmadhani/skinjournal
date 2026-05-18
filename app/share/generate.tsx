@@ -12,6 +12,7 @@ import { useProducts } from '@/hooks/useProducts';
 import { useTodayRoutine } from '@/hooks/useTodayRoutine';
 import { useWeekRoutineLogs } from '@/hooks/useWeekRoutineLogs';
 import { computeWeeklySummary } from '@/utils/weekly-summary';
+import { getBaselinePrimaryPhoto, getLatestJournalPrimaryPhoto } from '@/utils/photo-sessions';
 import { track, AnalyticsEvents } from '@/lib/analytics';
 
 export default function ShareGenerateScreen() {
@@ -27,8 +28,8 @@ export default function ShareGenerateScreen() {
     [photos, allProducts, weekLogs, routine]
   );
 
-  const baseline = photos?.find((p) => p.baseline) ?? photos?.[photos.length - 1];
-  const latest = photos?.[0];
+  const baseline = getBaselinePrimaryPhoto(photos ?? []) ?? photos?.[photos.length - 1];
+  const latest = getLatestJournalPrimaryPhoto(photos ?? []) ?? photos?.[0];
   const summary =
     insights?.[0]?.summary ?? 'Visible skin texture appears more even compared with your baseline.';
 

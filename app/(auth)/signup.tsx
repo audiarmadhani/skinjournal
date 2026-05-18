@@ -10,6 +10,7 @@ import { prepareOnboardingForUser } from '@/services/onboarding-session';
 import { useAuthStore } from '@/store/auth-store';
 import { useQueryClient } from '@tanstack/react-query';
 import { PrimaryButton } from '@/components/ui';
+import { posthog } from '@/lib/posthog';
 
 function authErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -37,6 +38,12 @@ export default function SignupScreen() {
       const session = await data.signUp(trimmedEmail, password, trimmedName);
       prepareOnboardingForUser(session.user.id);
       useAuthStore.getState().setAuthenticated(true, session.user.id);
+      posthog.identify(session.user.id, {
+        email: trimmedEmail,
+        name: trimmedName,
+        $set_once: { signup_date: new Date().toISOString() },
+      });
+      posthog.capture('user_signed_up', { method: 'email' });
       await data.ensureProfile();
       void queryClient.invalidateQueries();
       router.replace('/(onboarding)/welcome');

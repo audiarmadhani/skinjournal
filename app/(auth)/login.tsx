@@ -11,6 +11,7 @@ import { syncPendingOnboardingIfNeeded } from '@/services/onboarding-sync';
 import { useAuthStore } from '@/store/auth-store';
 import { useQueryClient } from '@tanstack/react-query';
 import { PrimaryButton } from '@/components/ui';
+import { posthog } from '@/lib/posthog';
 
 function authErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -35,6 +36,8 @@ export default function LoginScreen() {
       const session = await data.signIn(email, password);
       prepareOnboardingForUser(session.user.id);
       useAuthStore.getState().setAuthenticated(true, session.user.id);
+      posthog.identify(session.user.id, { email: session.user.email });
+      posthog.capture('user_signed_in', { method: 'email' });
       await data.ensureProfile();
       await finishAuth();
     } catch (error) {

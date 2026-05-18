@@ -7,7 +7,7 @@ import { PrimaryButton, Card, InsightCard } from '@/components/ui';
 import { PaywallCard } from '@/features/subscription/components/PaywallCard';
 import { useCameraStore } from '@/store/camera-store';
 import { data } from '@/services/data-provider';
-import { generateAIInsights } from '@/services/openai';
+import { analyzeFacePhotos } from '@/services/face-analysis';
 import { useQueryClient } from '@tanstack/react-query';
 import { todayISO } from '@/utils/dates';
 import { track, AnalyticsEvents } from '@/lib/analytics';
@@ -15,10 +15,16 @@ import { usePhotos } from '@/hooks/usePhotos';
 import { colors } from '@/lib/theme';
 import { completeOnboardingFlow } from '@/services/onboarding-sync';
 import { exitCameraFlow } from '@/utils/camera-navigation';
+import { buildInsightContext } from '@/utils/insight-context';
+import {
+  findBaselineSession,
+  getBaselinePrimaryPhoto,
+  groupPhotosIntoSessions,
+} from '@/utils/photo-sessions';
 
 export default function ResultScreen() {
   const { analyzing } = useLocalSearchParams<{ analyzing?: string }>();
-  const { captureUri, isBaseline, lightingQuality, reset } = useCameraStore();
+  const { captures, isBaseline, lightingQuality, isSessionComplete, reset } = useCameraStore();
   const runAnalysis = analyzing === 'true';
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
@@ -26,22 +32,25 @@ export default function ResultScreen() {
   const [insights, setInsights] = useState<string[]>([]);
   const [analysisSkipped, setAnalysisSkipped] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [savedFrontUri, setSavedFrontUri] = useState<string | null>(null);
+  const [savedFrontUrl, setSavedFrontUrl] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { data: photos } = usePhotos();
   const saveStartedRef = useRef(false);
   const isLeavingRef = useRef(false);
 
-  const baseline = photos?.find((p) => p.baseline);
-  const todayPhoto = photos?.[0];
+  const sessionGroups = groupPhotosIntoSessions(photos ?? []);
+  const baselineGroup = findBaselineSession(sessionGroups);
+  const frontCaptureUri = captures.front;
 
   useEffect(() => {
-    if (!captureUri && !isLeavingRef.current) {
+    if (!isSessionComplete() && !isLeavingRef.current) {
       router.replace('/camera/capture');
     }
-  }, [captureUri]);
+  }, [isSessionComplete]);
 
   useEffect(() => {
-    if (!captureUri || saveStartedRef.current) return;
+    if (!isSessionComplete() || saveStartedRef.current) return;
     saveStartedRef.current = true;
 
     const process = async () => {
@@ -52,50 +61,85 @@ export default function ResultScreen() {
       try {
         await data.ensureProfile();
 
-        const photo = await data.uploadPhoto({
-          user_id: '',
-          image_url: captureUri,
-          localUri: captureUri,
+        const angles = {
+          front: captures.front!,
+          left: captures.left!,
+          right: captures.right!,
+        };
+
+        const metadata = {
+          time: new Date().toLocaleTimeString(),
+          lighting_quality: lightingQuality,
+          device_info: Device.modelName ?? 'Unknown',
+        };
+
+        const { frontPhoto } = await data.uploadPhotoSession({
           date: todayISO(),
-          metadata: {
-            time: new Date().toLocaleTimeString(),
-            lighting_quality: lightingQuality,
-            device_info: Device.modelName ?? 'Unknown',
-          },
           baseline: isBaseline,
+          metadata,
+          angles,
         });
 
+        setSavedFrontUri(angles.front);
+        setSavedFrontUrl(frontPhoto.image_url);
+
+        const existingPhotos = await data.getPhotos();
+        const baselinePhoto = getBaselinePrimaryPhoto(existingPhotos);
+        const baselineImageUrl =
+          !isBaseline && baselinePhoto?.image_url ? baselinePhoto.image_url : null;
+
         if (runAnalysis) {
-          const { insights: generated, source } = await generateAIInsights({
-            daysSinceBaseline: 14,
-            streak: 12,
-            routinePercent: 83,
-            compareWithLastWeek: true,
+          const insightContext = await buildInsightContext({
+            lightingQuality,
+            photos: existingPhotos,
           });
 
-          setInsights(generated);
+          const analysis = await analyzeFacePhotos(
+            {
+              frontImageUrl: frontPhoto.image_url,
+              baselineImageUrl,
+              context: insightContext,
+            },
+            { allowed: true }
+          );
+
+          setInsights(analysis.insights);
+          track('photo_analysis_run', { source: analysis.source, is_baseline: isBaseline });
+
+          try {
+            await data.updatePhotoAnalysis(frontPhoto.id, {
+              insights: analysis.insights,
+              source: analysis.source,
+              model: analysis.model ?? (analysis.source === 'openai' ? 'gpt-4o-mini' : 'template'),
+              analyzed_at: analysis.analyzed_at ?? new Date().toISOString(),
+            });
+          } catch {
+            // analysis json save failed — continue
+          }
 
           try {
             const profile = await data.getProfile();
             await data.createInsight({
-              photo_id: photo.id,
+              photo_id: frontPhoto.id,
               user_id: profile.id,
-              summary: generated[0],
+              summary: analysis.insights[0],
               generated_at: new Date().toISOString(),
-              source,
+              source: analysis.source,
             });
           } catch {
-            // Insight save failed — photo still saved
+            // Insight row save failed — photos still saved
           }
         } else {
           setAnalysisSkipped(true);
           setInsights([]);
+          track('paywall_shown', { context: 'camera_result' });
         }
 
         try {
           if (isBaseline) {
             await completeOnboardingFlow();
-            await data.updateProfile({ baseline_photo_id: photo.id });
+            await data.updateProfile({ baseline_photo_id: frontPhoto.id });
+            track(AnalyticsEvents.onboardingCompleted, { method: 'baseline_photo' });
           }
         } catch {
           if (isBaseline) {
@@ -109,7 +153,7 @@ export default function ResultScreen() {
       } catch (error) {
         saveStartedRef.current = false;
         const message =
-          error instanceof Error ? error.message : 'Could not save your photo. Please try again.';
+          error instanceof Error ? error.message : 'Could not save your photos. Please try again.';
         setSaveError(message);
       } finally {
         setLoading(false);
@@ -117,12 +161,20 @@ export default function ResultScreen() {
     };
 
     void process();
-  }, [captureUri, runAnalysis, isBaseline, lightingQuality, queryClient, retryCount]);
+  }, [
+    captures,
+    isSessionComplete,
+    runAnalysis,
+    isBaseline,
+    lightingQuality,
+    queryClient,
+    retryCount,
+  ]);
 
   const handleDone = () => {
     if (!saved) {
       if (saveError) {
-        Alert.alert('Photo not saved', saveError);
+        Alert.alert('Photos not saved', saveError);
       }
       return;
     }
@@ -134,12 +186,17 @@ export default function ResultScreen() {
     setRetryCount((count) => count + 1);
   };
 
+  const previewUri = savedFrontUri ?? frontCaptureUri;
+  const baselineFront = baselineGroup?.primaryPhoto.image_url;
+  const showCompare =
+    runAnalysis && baselineFront && (savedFrontUrl ?? previewUri) && !isBaseline;
+
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-background items-center justify-center">
         <ActivityIndicator size="large" color={colors.pink} />
         <Text className="text-muted mt-4 text-base">
-          {runAnalysis ? 'Analyzing your photo…' : 'Saving your photo…'}
+          {runAnalysis ? 'Analyzing your photos…' : 'Saving your journal entry…'}
         </Text>
       </SafeAreaView>
     );
@@ -148,7 +205,7 @@ export default function ResultScreen() {
   if (saveError) {
     return (
       <SafeAreaView className="flex-1 bg-background px-5 justify-center">
-        <Text className="text-ink text-2xl font-bold mb-3">Couldn&apos;t save photo</Text>
+        <Text className="text-ink text-2xl font-bold mb-3">Couldn&apos;t save photos</Text>
         <Text className="text-muted text-base leading-6 mb-8">{saveError}</Text>
         <PrimaryButton title="Try again" onPress={handleRetry} className="mb-3" />
         <PrimaryButton
@@ -167,17 +224,20 @@ export default function ResultScreen() {
     <SafeAreaView className="flex-1 bg-background">
       <View className="flex-1 px-5 pt-4">
         <Text className="text-ink text-2xl font-bold mb-4">
-          {runAnalysis ? "Today's update" : 'Photo saved'}
+          {runAnalysis ? "Today's update" : 'Journal entry saved'}
         </Text>
-        {captureUri ? (
-          <Image source={{ uri: captureUri }} className="w-full h-64 rounded-3xl mb-5" resizeMode="cover" />
+        {previewUri ? (
+          <Image source={{ uri: previewUri }} className="w-full h-64 rounded-3xl mb-2" resizeMode="cover" />
         ) : null}
+        <Text className="text-muted text-sm mb-5 text-center">
+          Front · left · right angles saved
+        </Text>
 
         {analysisSkipped ? (
           <PaywallCard
             compact
             title="Face analysis is Premium"
-            description="Your photo is saved. Upgrade to get AI observations on redness, texture, and progress vs your baseline."
+            description="Your journal entry is saved. Upgrade to get AI observations on redness, texture, and progress vs your baseline."
           />
         ) : null}
 
@@ -187,12 +247,15 @@ export default function ResultScreen() {
           </View>
         ))}
 
-        {baseline && todayPhoto && runAnalysis ? (
+        {showCompare ? (
           <Card className="mb-5">
-            <Text className="text-muted text-sm mb-2">Day 1 vs Today</Text>
+            <Text className="text-muted text-sm mb-2">Day 1 vs Today (front)</Text>
             <View className="flex-row gap-2">
-              <Image source={{ uri: baseline.image_url }} className="flex-1 h-24 rounded-xl" />
-              <Image source={{ uri: captureUri! }} className="flex-1 h-24 rounded-xl" />
+              <Image source={{ uri: baselineFront }} className="flex-1 h-24 rounded-xl" />
+              <Image
+                source={{ uri: savedFrontUrl ?? previewUri! }}
+                className="flex-1 h-24 rounded-xl"
+              />
             </View>
           </Card>
         ) : null}

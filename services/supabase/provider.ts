@@ -1,6 +1,16 @@
 import { getSupabase } from '@/lib/supabase';
-import type { Insight, Photo, Product, Profile, RoutineLog, Streak } from '@/types';
+import type {
+  Insight,
+  Photo,
+  PhotoSession,
+  Product,
+  Profile,
+  RoutineLog,
+  Streak,
+} from '@/types';
 import type { AppSession } from '@/types/session';
+import type { PhotoSessionUploadResult, UploadPhotoSessionInput } from '@/types/photo-upload';
+import { PHOTO_ANGLE_ORDER } from '@/constants/photo-angles';
 import { todayISO } from '@/utils/dates';
 import { normalizeUsageInterval, withNormalizedInterval } from '@/utils/product-schedule';
 import { computeWeeklySummary, getLast7DaysBounds } from '@/utils/weekly-summary';
@@ -32,6 +42,14 @@ function normalizeProfile(row: Partial<Profile> & { id: string }): Profile {
 
 function normalizeProduct(row: Product): Product {
   return withNormalizedInterval(row);
+}
+
+function normalizePhoto(row: Photo): Photo {
+  return {
+    ...row,
+    session_id: row.session_id ?? null,
+    angle: row.angle ?? null,
+  };
 }
 
 async function getUserId(): Promise<string> {
@@ -175,7 +193,7 @@ export const supabaseProvider = {
       .eq('user_id', userId)
       .order('date', { ascending: false });
     if (error) throw error;
-    return (data ?? []) as Photo[];
+    return (data ?? []).map((row) => normalizePhoto(row as Photo));
   },
 
   async getPhoto(id: string): Promise<Photo | null> {
@@ -183,7 +201,84 @@ export const supabaseProvider = {
     if (!supabase) return mockProvider.getPhoto(id);
     const { data, error } = await supabase.from('photos').select('*').eq('id', id).single();
     if (error) return null;
-    return data as Photo;
+    return normalizePhoto(data as Photo);
+  },
+
+  async updatePhotoAnalysis(
+    photoId: string,
+    analysis: Record<string, unknown>
+  ): Promise<Photo> {
+    const supabase = getSupabase();
+    if (!supabase) return mockProvider.updatePhotoAnalysis(photoId, analysis);
+    const userId = await getUserId();
+    const { data, error } = await supabase
+      .from('photos')
+      .update({ analysis } as never)
+      .eq('id', photoId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+    if (error) throw error;
+    return normalizePhoto(data as Photo);
+  },
+
+  async uploadPhotoSession(input: UploadPhotoSessionInput): Promise<PhotoSessionUploadResult> {
+    const supabase = getSupabase();
+    if (!supabase) return mockProvider.uploadPhotoSession(input);
+    const userId = await getUserId();
+
+    const { data: sessionRow, error: sessionError } = await supabase
+      .from('photo_sessions')
+      .insert({
+        user_id: userId,
+        date: input.date,
+        baseline: input.baseline,
+        metadata: input.metadata,
+      } as never)
+      .select()
+      .single();
+    if (sessionError) throw sessionError;
+
+    const session = sessionRow as PhotoSession;
+    const uploaded: Photo[] = [];
+
+    for (const angle of PHOTO_ANGLE_ORDER) {
+      const localUri = input.angles[angle];
+      const storagePath = `${userId}/${session.id}/${angle}.jpg`;
+      const response = await fetch(localUri);
+      if (!response.ok) {
+        throw new Error('Could not read the photo from your device.');
+      }
+      const blob = await response.blob();
+      const { error: uploadError } = await supabase.storage.from('photos').upload(storagePath, blob, {
+        upsert: true,
+        contentType: blob.type || 'image/jpeg',
+      });
+      if (uploadError) {
+        throw new Error(uploadError.message || 'Could not upload photo to storage.');
+      }
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(storagePath);
+
+      const { data: photoRow, error: photoError } = await supabase
+        .from('photos')
+        .insert({
+          user_id: userId,
+          session_id: session.id,
+          angle,
+          image_url: urlData.publicUrl,
+          storage_path: storagePath,
+          date: input.date,
+          metadata: input.metadata,
+          baseline: input.baseline,
+        } as never)
+        .select()
+        .single();
+      if (photoError) throw photoError;
+      uploaded.push(normalizePhoto(photoRow as Photo));
+    }
+
+    const frontPhoto = uploaded.find((p) => p.angle === 'front') ?? uploaded[0];
+    return { session, photos: uploaded, frontPhoto };
   },
 
   async uploadPhoto(photo: Omit<Photo, 'id'> & { localUri?: string }): Promise<Photo> {
@@ -226,7 +321,7 @@ export const supabaseProvider = {
       .select()
       .single();
     if (error) throw error;
-    return data as Photo;
+    return normalizePhoto(data as Photo);
   },
 
   async deletePhoto(photoId: string): Promise<void> {
@@ -236,14 +331,58 @@ export const supabaseProvider = {
 
     const { data: photo, error: fetchError } = await supabase
       .from('photos')
-      .select('id, storage_path, baseline')
+      .select('id, storage_path, baseline, session_id')
       .eq('id', photoId)
       .eq('user_id', userId)
       .maybeSingle();
     if (fetchError) throw fetchError;
     if (!photo) return;
 
-    const row = photo as Pick<Photo, 'id' | 'storage_path' | 'baseline'>;
+    const row = photo as Pick<Photo, 'id' | 'storage_path' | 'baseline' | 'session_id'>;
+
+    if (row.session_id) {
+      const { data: sessionPhotos, error: listError } = await supabase
+        .from('photos')
+        .select('id, storage_path, baseline')
+        .eq('session_id', row.session_id)
+        .eq('user_id', userId);
+      if (listError) throw listError;
+
+      const paths = (sessionPhotos ?? [])
+        .map((p) => (p as Pick<Photo, 'storage_path'>).storage_path)
+        .filter((p): p is string => Boolean(p));
+      if (paths.length > 0) {
+        await supabase.storage.from('photos').remove(paths);
+      }
+
+      const { error: deletePhotosError } = await supabase
+        .from('photos')
+        .delete()
+        .eq('session_id', row.session_id)
+        .eq('user_id', userId);
+      if (deletePhotosError) throw deletePhotosError;
+
+      await supabase.from('photo_sessions').delete().eq('id', row.session_id).eq('user_id', userId);
+
+      const hadBaseline = (sessionPhotos ?? []).some((p) => (p as Photo).baseline);
+      const { data: profileRow } = await supabase
+        .from('profiles')
+        .select('baseline_photo_id')
+        .eq('id', userId)
+        .maybeSingle();
+      const baselineId = (profileRow as Profile | null)?.baseline_photo_id;
+      const clearedBaseline =
+        hadBaseline ||
+        (sessionPhotos ?? []).some((p) => (p as Photo).id === baselineId);
+      if (clearedBaseline) {
+        await supabase
+          .from('profiles')
+          .update({ baseline_photo_id: null } as never)
+          .eq('id', userId);
+      }
+      return;
+    }
+
     if (row.storage_path) {
       await supabase.storage.from('photos').remove([row.storage_path]);
     }

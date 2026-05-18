@@ -1,18 +1,23 @@
 import type {
   Insight,
   Photo,
+  PhotoSession,
   Product,
   Profile,
   RoutineLog,
   Streak,
 } from '@/types';
 import type { AppSession } from '@/types/session';
+import type { PhotoSessionUploadResult, UploadPhotoSessionInput } from '@/types/photo-upload';
+import { PHOTO_ANGLE_ORDER } from '@/constants/photo-angles';
 import { todayISO, toLocalISODate } from '@/utils/dates';
+import { getFrontPhoto } from '@/utils/photo-sessions';
 import { normalizeUsageInterval, withNormalizedInterval } from '@/utils/product-schedule';
 import { computeWeeklySummary } from '@/utils/weekly-summary';
 import {
   MOCK_INSIGHTS,
   MOCK_PHOTOS,
+  MOCK_PHOTO_SESSIONS,
   MOCK_PRODUCTS,
   MOCK_PROFILE,
   MOCK_ROUTINE_LOG,
@@ -21,6 +26,7 @@ import {
 } from './seed';
 
 let photos = [...MOCK_PHOTOS];
+let photoSessions = [...MOCK_PHOTO_SESSIONS];
 let products = [...MOCK_PRODUCTS];
 let insights = [...MOCK_INSIGHTS];
 let routineLog = { ...MOCK_ROUTINE_LOG };
@@ -77,12 +83,78 @@ export const mockProvider = {
     return photos.find((p) => p.id === id) ?? null;
   },
 
+  async updatePhotoAnalysis(
+    photoId: string,
+    analysis: Record<string, unknown>
+  ): Promise<Photo> {
+    const index = photos.findIndex((p) => p.id === photoId);
+    if (index === -1) throw new Error('Photo not found');
+    const updated = { ...photos[index], analysis };
+    photos = [...photos.slice(0, index), updated, ...photos.slice(index + 1)];
+    return updated;
+  },
+
   async deletePhoto(photoId: string): Promise<void> {
     const removed = photos.find((p) => p.id === photoId);
+    if (!removed) return;
+
+    if (removed.session_id) {
+      const sessionId = removed.session_id;
+      const sessionPhotos = photos.filter((p) => p.session_id === sessionId);
+      const hadBaseline = sessionPhotos.some((p) => p.baseline);
+      const clearedBaseline = sessionPhotos.some((p) => p.id === profile.baseline_photo_id);
+      photos = photos.filter((p) => p.session_id !== sessionId);
+      photoSessions = photoSessions.filter((s) => s.id !== sessionId);
+      if (hadBaseline || clearedBaseline) {
+        profile = { ...profile, baseline_photo_id: null };
+      }
+      return;
+    }
+
     photos = photos.filter((p) => p.id !== photoId);
-    if (removed?.baseline || profile.baseline_photo_id === photoId) {
+    if (removed.baseline || profile.baseline_photo_id === photoId) {
       profile = { ...profile, baseline_photo_id: null };
     }
+  },
+
+  async uploadPhotoSession(input: UploadPhotoSessionInput): Promise<PhotoSessionUploadResult> {
+    const sessionId = `session-${Date.now()}`;
+    const ts = Date.now();
+    const session: PhotoSession = {
+      id: sessionId,
+      user_id: profile.id,
+      date: input.date,
+      baseline: input.baseline,
+      metadata: input.metadata,
+      created_at: new Date().toISOString(),
+    };
+    photoSessions = [session, ...photoSessions];
+
+    const newPhotos: Photo[] = PHOTO_ANGLE_ORDER.map((angle, i) => ({
+      id: `photo-${ts}-${angle}`,
+      user_id: profile.id,
+      image_url: input.angles[angle],
+      date: input.date,
+      metadata: input.metadata,
+      baseline: input.baseline,
+      session_id: sessionId,
+      angle,
+    }));
+
+    photos = [...newPhotos, ...photos];
+
+    const frontPhoto = getFrontPhoto(newPhotos)!;
+    if (input.baseline) {
+      profile = { ...profile, baseline_photo_id: frontPhoto.id };
+    }
+
+    streak = {
+      ...streak,
+      current_streak: streak.current_streak + 1,
+      last_log_date: todayISO(),
+    };
+
+    return { session, photos: newPhotos, frontPhoto };
   },
 
   async uploadPhoto(photo: Omit<Photo, 'id'> & { localUri?: string }): Promise<Photo> {
@@ -90,6 +162,8 @@ export const mockProvider = {
       ...photo,
       id: `photo-${Date.now()}`,
       image_url: photo.localUri ?? photo.image_url,
+      session_id: photo.session_id ?? null,
+      angle: photo.angle ?? null,
     };
     photos = [newPhoto, ...photos];
     if (photo.baseline) {

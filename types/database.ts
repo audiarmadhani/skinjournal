@@ -45,10 +45,23 @@ export interface Profile {
   sex: ProfileSex | null;
 }
 
+export type PhotoAngle = 'front' | 'left' | 'right';
+
+export const PHOTO_ANGLES: PhotoAngle[] = ['front', 'left', 'right'];
+
 export interface PhotoMetadata {
   time: string;
   lighting_quality: 'good' | 'fair' | 'poor';
   device_info: string;
+}
+
+export interface PhotoSession {
+  id: string;
+  user_id: string;
+  date: string;
+  baseline: boolean;
+  metadata: PhotoMetadata;
+  created_at: string;
 }
 
 export interface Photo {
@@ -60,6 +73,14 @@ export interface Photo {
   metadata: PhotoMetadata;
   analysis?: Record<string, unknown>;
   baseline: boolean;
+  session_id: string | null;
+  angle: PhotoAngle | null;
+}
+
+export interface PhotoSessionUploadResult {
+  session: PhotoSession;
+  photos: Photo[];
+  frontPhoto: Photo;
 }
 
 export interface Product {
@@ -112,6 +133,7 @@ export interface Database {
   public: {
     Tables: {
       profiles: { Row: Profile; Insert: Partial<Profile>; Update: Partial<Profile> };
+      photo_sessions: { Row: PhotoSession; Insert: Partial<PhotoSession>; Update: Partial<PhotoSession> };
       photos: { Row: Photo; Insert: Partial<Photo>; Update: Partial<Photo> };
       products: { Row: Product; Insert: Partial<Product>; Update: Partial<Product> };
       routine_logs: { Row: RoutineLog; Insert: Partial<RoutineLog>; Update: Partial<RoutineLog> };

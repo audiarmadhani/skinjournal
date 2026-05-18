@@ -2,6 +2,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, PillTag, StreakWidget } from '@/components/ui';
+import { TabSlideScreen } from '@/components/navigation/TabSlideScreen';
 import { useProfile } from '@/hooks/useProfile';
 import { usePremium } from '@/hooks/usePremium';
 import { useStreak } from '@/hooks/useStreak';
@@ -60,6 +61,7 @@ export default function ProfileScreen() {
   };
 
   return (
+    <TabSlideScreen>
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <ScrollView className="flex-1 px-5">
         <View className="pt-2 mb-4">
@@ -136,5 +138,6 @@ export default function ProfileScreen() {
         <View className="h-10" />
       </ScrollView>
     </SafeAreaView>
+    </TabSlideScreen>
   );
 }

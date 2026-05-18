@@ -23,6 +23,7 @@ import {
   parseIntervalInput,
 } from '@/utils/product-schedule';
 import type { Product } from '@/types';
+import { track } from '@/lib/analytics';
 
 function ProductRow({
   product,
@@ -148,6 +149,7 @@ export default function ManageRoutineScreen() {
         started_at: todayISO(),
         usage_interval_days: interval,
       });
+      track('routine_product_added', { routine_type: routineType, usage_interval_days: interval });
       setStepType('');
       setBrand('');
       setIntervalText('1');
@@ -183,6 +185,7 @@ export default function ManageRoutineScreen() {
     setDeletingId(id);
     try {
       await data.deleteProduct(id);
+      track('routine_product_deleted');
       await refreshProducts();
     } catch (e) {
       showMessage('Could not remove', e instanceof Error ? e.message : 'Try again.');

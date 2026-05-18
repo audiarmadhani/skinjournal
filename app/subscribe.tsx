@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,12 +8,17 @@ import { PREMIUM_FEATURES } from '@/lib/subscription';
 import { activatePremiumForTesting } from '@/services/subscription';
 import { shouldUseMock } from '@/lib/env';
 import { useQueryClient } from '@tanstack/react-query';
+import { track } from '@/lib/analytics';
 
 export default function SubscribeScreen() {
   const { isPremium, isLoading } = usePremium();
   const queryClient = useQueryClient();
   const [activating, setActivating] = useState(false);
   const showDevUnlock = shouldUseMock() || __DEV__;
+
+  useEffect(() => {
+    track('premium_screen_viewed');
+  }, []);
 
   const handleDevUnlock = async () => {
     setActivating(true);
@@ -71,12 +76,13 @@ export default function SubscribeScreen() {
           <>
             <PrimaryButton
               title="Subscribe — coming soon"
-              onPress={() =>
+              onPress={() => {
+                track('premium_upgrade_tapped');
                 Alert.alert(
                   'Coming soon',
                   'Connect App Store / Play Billing or RevenueCat to enable purchases. Until then, premium can be granted in Supabase (subscription_tier = premium).'
-                )
-              }
+                );
+              }}
               disabled={isLoading}
             />
             <Text className="text-muted text-xs text-center mt-3 mb-4 px-4">

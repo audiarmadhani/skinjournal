@@ -1,6 +1,8 @@
 import type {
   Insight,
   Photo,
+  PhotoAngle,
+  PhotoSession,
   Product,
   Profile,
   RoutineLog,
@@ -24,7 +26,7 @@ export const MOCK_PROFILE: Profile = {
   skin_goals: ['hydration', 'texture', 'redness'] as SkinGoal[],
   concerns: ['redness', 'texture'],
   onboarding_completed: true,
-  baseline_photo_id: 'photo-baseline',
+  baseline_photo_id: 'photo-baseline-front',
   subscription_tier: 'free',
   premium_expires_at: null,
   created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
@@ -41,22 +43,68 @@ export const MOCK_PROFILE: Profile = {
 
 const PLACEHOLDER = 'https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=400&h=500&fit=crop';
 
-export const MOCK_PHOTOS: Photo[] = Array.from({ length: 12 }, (_, i) => {
-  const day = 30 - i * 2;
-  const id = i === 0 ? 'photo-baseline' : `photo-${i}`;
-  return {
-    id,
+const ANGLES: PhotoAngle[] = ['front', 'left', 'right'];
+
+function buildSessionPhotos(opts: {
+  sessionId: string;
+  date: string;
+  baseline: boolean;
+  idPrefix: string;
+}): Photo[] {
+  return ANGLES.map((angle) => ({
+    id: `${opts.idPrefix}-${angle}`,
     user_id: MOCK_USER_ID,
     image_url: PLACEHOLDER,
-    date: daysAgo(day),
+    date: opts.date,
     metadata: {
       time: '09:00',
-      lighting_quality: i % 3 === 0 ? 'good' : 'fair',
+      lighting_quality: 'good' as const,
       device_info: 'iPhone',
     },
-    baseline: i === 0,
-  };
-});
+    baseline: opts.baseline,
+    session_id: opts.sessionId,
+    angle,
+  }));
+}
+
+export const MOCK_PHOTO_SESSIONS: PhotoSession[] = [
+  {
+    id: 'session-baseline',
+    user_id: MOCK_USER_ID,
+    date: daysAgo(30),
+    baseline: true,
+    metadata: { time: '09:00', lighting_quality: 'good', device_info: 'iPhone' },
+    created_at: new Date(Date.now() - 30 * 86400000).toISOString(),
+  },
+  ...Array.from({ length: 4 }, (_, i) => {
+    const day = 24 - i * 6;
+    return {
+      id: `session-${i + 1}`,
+      user_id: MOCK_USER_ID,
+      date: daysAgo(day),
+      baseline: false,
+      metadata: { time: '09:00', lighting_quality: i % 2 === 0 ? ('good' as const) : ('fair' as const), device_info: 'iPhone' },
+      created_at: new Date(Date.now() - day * 86400000).toISOString(),
+    };
+  }),
+];
+
+export const MOCK_PHOTOS: Photo[] = [
+  ...buildSessionPhotos({
+    sessionId: 'session-baseline',
+    date: daysAgo(30),
+    baseline: true,
+    idPrefix: 'photo-baseline',
+  }),
+  ...MOCK_PHOTO_SESSIONS.filter((s) => !s.baseline).flatMap((s, i) =>
+    buildSessionPhotos({
+      sessionId: s.id,
+      date: s.date,
+      baseline: false,
+      idPrefix: `photo-s${i + 1}`,
+    })
+  ),
+];
 
 export const MOCK_PRODUCTS: Product[] = [
   {
@@ -126,7 +174,7 @@ export const MOCK_ROUTINE_LOG: RoutineLog = {
 export const MOCK_INSIGHTS: Insight[] = [
   {
     id: 'insight-1',
-    photo_id: MOCK_PHOTOS[MOCK_PHOTOS.length - 1].id,
+    photo_id: 'photo-s4-front',
     user_id: MOCK_USER_ID,
     summary: 'Visible redness appears reduced compared with your baseline.',
     generated_at: new Date().toISOString(),

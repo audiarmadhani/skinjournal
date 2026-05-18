@@ -1,13 +1,14 @@
 import { ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, InsightCard, PrimaryButton, ScreenHeader } from '@/components/ui';
+import { TabSlideScreen } from '@/components/navigation/TabSlideScreen';
 import { PaywallCard } from '@/features/subscription/components/PaywallCard';
 import { usePremium } from '@/hooks/usePremium';
 import { useInsights } from '@/hooks/useInsights';
 import { useStreak } from '@/hooks/useStreak';
 import { track, AnalyticsEvents } from '@/lib/analytics';
 import { useEffect } from 'react';
-import { router } from 'expo-router';
+import { openCameraCapture } from '@/utils/camera-navigation';
 
 export default function InsightsScreen() {
   const { canAnalyzeFace } = usePremium();
@@ -19,6 +20,7 @@ export default function InsightsScreen() {
   }, []);
 
   return (
+    <TabSlideScreen>
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <ScrollView className="flex-1 px-5" showsVerticalScrollIndicator={false}>
         <ScreenHeader title="Insights" showBack={false} />
@@ -62,11 +64,12 @@ export default function InsightsScreen() {
 
         <PrimaryButton
           title="Take today's photo"
-          onPress={() => router.push('/camera/capture')}
+          onPress={() => openCameraCapture()}
           className="my-8"
         />
         <View className="h-6" />
       </ScrollView>
     </SafeAreaView>
+    </TabSlideScreen>
   );
 }

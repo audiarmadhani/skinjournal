@@ -21,7 +21,13 @@ export function RootStack() {
         <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
         <Stack.Screen name="(onboarding)" />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="camera/capture" options={{ presentation: 'fullScreenModal' }} />
+        <Stack.Screen
+          name="camera/capture"
+          options={{
+            presentation: 'modal',
+            gestureEnabled: true,
+          }}
+        />
         <Stack.Screen name="camera/preview" options={{ presentation: 'fullScreenModal' }} />
         <Stack.Screen name="camera/result" options={{ presentation: 'modal' }} />
         <Stack.Screen name="photo/[id]" />

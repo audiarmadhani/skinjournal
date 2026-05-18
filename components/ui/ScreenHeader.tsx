@@ -6,6 +6,7 @@ import { useAppColors } from '@/hooks/useAppColors';
 interface ScreenHeaderProps {
   title: string;
   showBack?: boolean;
+  onBackPress?: () => void;
   rightIcon?: 'more' | 'none';
   onRightPress?: () => void;
 }
@@ -13,6 +14,7 @@ interface ScreenHeaderProps {
 export function ScreenHeader({
   title,
   showBack = true,
+  onBackPress,
   rightIcon = 'none',
   onRightPress,
 }: ScreenHeaderProps) {
@@ -22,7 +24,7 @@ export function ScreenHeader({
     <View className="flex-row items-center justify-between py-3 mb-2">
       {showBack ? (
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => (onBackPress ? onBackPress() : router.back())}
           className="w-10 h-10 rounded-full bg-surface items-center justify-center"
         >
           <Ionicons name="chevron-back" size={22} color={colors.ink} />

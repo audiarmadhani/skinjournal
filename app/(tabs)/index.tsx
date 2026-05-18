@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { openCameraCapture } from '@/utils/camera-navigation';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Card,
@@ -15,6 +16,7 @@ import {
   WeekCalendarStrip,
   HorizontalBleedScroll,
 } from '@/components/ui';
+import { TabSlideScreen } from '@/components/navigation/TabSlideScreen';
 import { useProfile } from '@/hooks/useProfile';
 import { usePremium } from '@/hooks/usePremium';
 import { useStreak } from '@/hooks/useStreak';
@@ -27,6 +29,8 @@ import { buildRoutineItemsForType } from '@/utils/routine-items';
 import { formatLogDate, isRoutineLogComplete, routineProgress } from '@/utils/routine';
 import { useWeekRoutineLogs } from '@/hooks/useWeekRoutineLogs';
 import { computeWeeklySummary } from '@/utils/weekly-summary';
+import { findTodaySession, groupPhotosIntoSessions } from '@/utils/photo-sessions';
+import { track } from '@/lib/analytics';
 
 export default function HomeScreen() {
   const { data: profile } = useProfile();
@@ -39,7 +43,7 @@ export default function HomeScreen() {
   const { data: photos } = usePhotos();
 
   const today = todayISO();
-  const todayPhoto = photos?.find((p) => p.date === today);
+  const todaySession = findTodaySession(groupPhotosIntoSessions(photos ?? []), today);
   const morningProducts = products?.filter((p) => p.routine_type === 'morning') ?? [];
   const nightProducts = products?.filter((p) => p.routine_type === 'night') ?? [];
   const allRoutineProducts = [...morningProducts, ...nightProducts];
@@ -54,7 +58,9 @@ export default function HomeScreen() {
 
   const toggleMorning = async (id: string) => {
     const completed = routine?.morning_completed ?? [];
-    const next = completed.includes(id) ? completed.filter((c) => c !== id) : [...completed, id];
+    const isCompleting = !completed.includes(id);
+    const next = isCompleting ? [...completed, id] : completed.filter((c) => c !== id);
+    track('routine_step_toggled', { routine_type: 'morning', checked: isCompleting });
     try {
       await updateRoutine({ morning_completed: next });
     } catch (e) {
@@ -64,7 +70,9 @@ export default function HomeScreen() {
 
   const toggleNight = async (id: string) => {
     const completed = routine?.night_completed ?? [];
-    const next = completed.includes(id) ? completed.filter((c) => c !== id) : [...completed, id];
+    const isCompleting = !completed.includes(id);
+    const next = isCompleting ? [...completed, id] : completed.filter((c) => c !== id);
+    track('routine_step_toggled', { routine_type: 'night', checked: isCompleting });
     try {
       await updateRoutine({ night_completed: next });
     } catch (e) {
@@ -98,6 +106,7 @@ export default function HomeScreen() {
     insights?.[0]?.summary ?? 'Visible redness appears reduced compared with your baseline.';
 
   return (
+    <TabSlideScreen>
     <SafeAreaView className="flex-1 bg-background" edges={['top']}>
       <ScrollView
         className="flex-1 px-5"
@@ -110,15 +119,17 @@ export default function HomeScreen() {
         <SectionHeader title="My journey" />
         <HorizontalBleedScroll>
           <FeaturedCard
-            title={todayPhoto ? "Today's photo" : 'Daily photo'}
+            title={todaySession ? "Today's journal" : 'Daily journal'}
             subtitle={
-              todayPhoto
-                ? 'Great work — your progress is saved.'
-                : "Let's capture today's skin progress."
+              todaySession
+                ? 'Front, left & right — saved for today.'
+                : 'Capture front, left, and right progress photos.'
             }
-            cta={todayPhoto ? 'View' : 'Take photo'}
+            cta={todaySession ? 'View' : 'Take photos'}
             onPress={() =>
-              todayPhoto ? router.push('/(tabs)/timeline') : router.push('/camera/capture')
+              todaySession
+                ? router.push(`/photo/${todaySession.primaryPhoto.id}`)
+                : openCameraCapture()
             }
           />
           <FeaturedCard
@@ -198,11 +209,12 @@ export default function HomeScreen() {
         <View className="mt-5 mb-10">
           <ProgressCard
             title="Weekly progress"
-            value={`${weekly.photosThisWeek} photos`}
+            value={`${weekly.photosThisWeek} journal ${weekly.photosThisWeek === 1 ? 'entry' : 'entries'}`}
             subtitle={`Routine consistency: ${weekly.routineConsistency}%`}
           />
         </View>
       </ScrollView>
     </SafeAreaView>
+    </TabSlideScreen>
   );
 }

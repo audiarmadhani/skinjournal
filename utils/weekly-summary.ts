@@ -1,5 +1,6 @@
 import type { Photo, Product, RoutineLog } from '@/types';
 import { parseLocalDate, todayISO, toLocalISODate } from '@/utils/dates';
+import { countSessionsInRange } from '@/utils/photo-sessions';
 import { routineProgress } from '@/utils/routine';
 
 export function getLast7DaysBounds(): { start: string; end: string } {
@@ -27,7 +28,7 @@ export function computeWeeklySummary(
 ): { photosThisWeek: number; routineConsistency: number } {
   const today = todayISO();
   const { start: weekStart } = getLast7DaysBounds();
-  const photosThisWeek = (photos ?? []).filter((p) => p.date >= weekStart).length;
+  const photosThisWeek = countSessionsInRange(photos ?? [], weekStart, today);
 
   if (products.length === 0) {
     return { photosThisWeek, routineConsistency: 0 };

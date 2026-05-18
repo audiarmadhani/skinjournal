@@ -1,0 +1,4 @@
+# Supabase local development — https://supabase.com/docs/guides/cli/config
+
+[functions.analyze-face]
+verify_jwt = true
